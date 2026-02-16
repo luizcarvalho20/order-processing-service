@@ -1,17 +1,20 @@
-import express from "express";
-import cors from "cors";
-import { env } from "./config/env";
-import { logger } from "./utils/logger";
-import pinoHttp from "pino-http";
+require("dotenv/config");
+const express = require("express");
+const cors = require("cors");
+const { env } = require("./config/env");
+const { logger } = require("./utils/logger");
+const pinoHttp = require("pino-http");
+const ordersRouter = require("./routes/orders.routes");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
 app.use(
   pinoHttp({
     logger,
-    customLogLevel: function (_req, res, err) {
+    customLogLevel: function (_req: any, res: any, err: any) {
       if (err || res.statusCode >= 500) return "error";
       if (res.statusCode >= 400) return "warn";
       return "info";
@@ -19,8 +22,10 @@ app.use(
   })
 );
 
+app.use("/orders", ordersRouter);
+
 // Healthcheck básico (vamos evoluir no Dia 20)
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: import("express").Request, res: import("express").Response) => {
   res.status(200).json({
     status: "ok",
     service: "order-processing-service",
