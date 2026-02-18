@@ -1,10 +1,31 @@
-// src/queues/orderQueue.ts
-import { Queue } from "bullmq";
-import { redisConnection } from "../config/redis";
+const { Qq} = require("bullmq");
+const { redisConnection } = require("../config/redis");
 
-export const ORDER_QUEUE_NAME = "order-processing";
-export const ORDER_JOB_PROCESS_ORDER = "process-order";
+const ORDER_QUEUE_NAME = "order-processing";
+const ORDER_JOB_PROCESS_ORDER = "process-order";
 
-export const orderQueue = new Queue(ORDER_QUEUE_NAME, {
-  connection: redisConnection,
-});
+let _orderQueue: Queue | null = null;
+
+function getOrderQueue() {
+  if (!_orderQueue) {
+    _orderQueue = new Queue(ORDER_QUEUE_NAME, {
+      connection: redisConnection,
+    });
+  }
+  
+  return _orderQueue;
+}
+
+async function closeOrderQueue() {
+  if (_orderQueue) {
+    await _orderQueue.close();
+    _orderQueue = null;
+  }
+}
+
+module.exports = {
+  ORDER_QUEUE_NAME,
+  ORDER_JOB_PROCESS_ORDER,
+  getOrderQueue,
+  closeOrderQueue,
+};
