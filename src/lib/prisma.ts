@@ -1,19 +1,28 @@
-require("dotenv/config");
+// src/lib/prisma.ts
+import { Pool } from "pg";
+import { PrismaClient } from "@prisma/client";
 
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-const { Pool } = require("pg");
+// Pool do Postgres (abre sockets)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
-const connectionString = process.env.DATABASE_URL;
+// Prisma Client
+const prisma = new PrismaClient();
 
-if (!connectionString) {
-  throw new Error("DATABASE_URL não definida no .env");
+// Fecha tudo (usado pelo Jest/teardown)
+async function closeDb() {
+  try {
+    await prisma.$disconnect();
+  } catch {}
+
+  try {
+    await pool.end();
+  } catch {}
 }
 
-const pool = new Pool({ connectionString });
-const adapter = new PrismaPg(pool);
-
-const prisma = new PrismaClient({ adapter });
-
-module.exports = { prisma, pool };
-
+module.exports = {
+  prisma,
+  pool,
+  closeDb,
+};

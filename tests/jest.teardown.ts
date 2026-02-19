@@ -1,38 +1,31 @@
+// tests/jest.teardown.ts
 async function globalTeardown() {
-  // 1) Fecha BullMQ Queue (import CommonJS-safe)
+  // 1) Fecha BullMQ Queue
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const queueMod = require("../src/queues/orderQueue") as {
-      closeOrderQueue?: () => Promise<void>;
-      getOrderQueue?: () => any;
-    };
+    const queueMod = require("../src/queues/orderQueue");
 
     if (typeof queueMod.closeOrderQueue === "function") {
       await queueMod.closeOrderQueue();
-    } else {
-      // fallback: se só existir getOrderQueue, tenta fechar a instância
-      if (typeof queueMod.getOrderQueue === "function") {
-        const q = queueMod.getOrderQueue();
-        if (q?.close) await q.close();
-      }
+    } else if (typeof queueMod.getOrderQueue === "function") {
+      const q = queueMod.getOrderQueue();
+      if (q?.close) await q.close();
     }
-  } catch {}
+  } catch (err) {
+    // opcional: console.error("[teardown] erro ao fechar queue", err);
+  }
 
-  // 2) Fecha Prisma + Pool do Postgres (CommonJS)
+  // 2) Fecha Prisma
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const prismaMod = require("../src/lib/prisma") as {
-      prisma?: { $disconnect?: () => Promise<void> };
-      pool?: { end?: () => Promise<void> };
-    };
+    const prismaMod = require("../src/lib/prisma");
 
     if (prismaMod?.prisma?.$disconnect) {
       await prismaMod.prisma.$disconnect();
     }
-    if (prismaMod?.pool?.end) {
-      await prismaMod.pool.end();
-    }
-  } catch {}
+  } catch (err) {
+    // opcional: console.error("[teardown] erro ao desconectar prisma", err);
+  }
 }
 
 module.exports = globalTeardown;

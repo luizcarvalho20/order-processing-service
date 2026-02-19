@@ -1,67 +1,78 @@
-const { Router } = require("express");
-const { prisma } = require("../lib/prisma");
+// src/routes/orders.routes.ts
+import { Router, type Request, type Response } from "express";
+import { z } from "zod";
 
-const { orderQueue, ORDER_JOB_PROCESS_ORDER } = require("../queues/orderQueue");
+// CommonJS-safe (seu prisma é module.exports = { prisma })
+const { prisma } = require("../lib/prisma") as { prisma: any };
+
+// Queue CommonJS (getOrderQueue/export consts)
+const {
+  getOrderQueue,
+  ORDER_JOB_PROCESS_ORDER,
+} = require("../queues/orderQueue") as {
+  getOrderQueue: () => any;
+  ORDER_JOB_PROCESS_ORDER: string;
+};
 
 const router = Router();
 
-router.post("/", async (req: any, res: any) => {
-  try {
-    const { items } = req.body;
-
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: "Pedido precisa ter itens." });
-    }
-
-    for (const item of items) {
-      if (!item.product || !item.quantity || !item.price) {
-        return res.status(400).json({ error: "Itens inválidos." });
-      }
-    }
-
-    const totalNumber = items.reduce(
-      (sum: number, item: any) =>
-        sum + Number(item.price) * Number(item.quantity),
-      0
-    );
-
-    // Como no Prisma schema você está usando Decimal, é mais seguro passar string "150.00"
-    const total = totalNumber.toFixed(2);
-
-    const order = await prisma.order.create({
-      data: {
-        total, // string
-        items: {
-          create: items.map((i: any) => ({
-            product: String(i.product),
-            quantity: Number(i.quantity),
-            price: Number(i.price).toFixed(2), // string
-          })),
-        },
-      },
-      include: { items: true },
-    });
-
-    // ✅ Dia 17: enfileira processamento assíncrono do pedido
-    await orderQueue.add(ORDER_JOB_PROCESS_ORDER, { orderId: order.id });
-
-    return res.status(201).json(order);
-  } catch (err: any) {
-    console.error("[orders.post] error:", err);
-    return res.status(500).json({ error: "Erro ao criar pedido." });
-  }
+const createOrderSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        product: z.string().min(1),
+        quantity: z.number().int().positive(),
+        price: z.number().positive(),
+      })
+    )
+    .min(1),
 });
 
-router.get("/", async (_req: any, res: any) => {
-  const orders = await prisma.order.findMany({
+// POST /orders
+router.post("/", async (req: Request, res: Response) => {
+  const parsed = createOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      message: "Payload inválido",
+      issues: parsed.error.issues,
+    });
+  }
+
+  const { items } = parsed.data;
+
+  const total = items.reduce((acc, it) => acc + it.quantity * it.price, 0);
+
+  const order = await prisma.order.create({
+    data: {
+      status: "PENDING",
+      total, // pode virar string se for Decimal no Prisma, ok
+      items: {
+        create: items.map((it: any) => ({
+          product: it.product,
+          quantity: it.quantity,
+          price: it.price,
+        })),
+      },
+    },
     include: { items: true },
-    orderBy: { createdAt: "desc" },
   });
 
-  return res.json(orders);
+  // Enfileira para o worker processar
+  const queue = getOrderQueue();
+  await queue.add(
+    ORDER_JOB_PROCESS_ORDER,
+    { orderId: order.id },
+    {
+      removeOnComplete: true,
+      removeOnFail: true,
+    }
+  );
+
+  return res.status(201).json(order);
 });
 
-router.get("/:id", async (req: any, res: any) => {
+// GET /orders/:id
+router.get("/:id", async (req: Request, res: Response) => {
   const { id } = req.params;
 
   const order = await prisma.order.findUnique({
@@ -69,9 +80,11 @@ router.get("/:id", async (req: any, res: any) => {
     include: { items: true },
   });
 
-  if (!order) return res.status(404).json({ error: "Pedido não encontrado." });
+  if (!order) {
+    return res.status(404).json({ message: "Pedido não encontrado" });
+  }
 
-  return res.json(order);
+  return res.status(200).json(order);
 });
 
-module.exports = router;
+export default router;
